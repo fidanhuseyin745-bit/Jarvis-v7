@@ -1,0 +1,27 @@
+{
+  "weather": {
+    "enabled": true,
+    "version": "1.0.0",
+    "description": "Hava durumu plugini"
+  },
+  "github": {
+    "enabled": true,
+    "version": "1.0.0",
+    "description": "GitHub entegrasyonu"
+  },
+  "youtube": {
+    "enabled": false,
+    "version": "1.0.0",
+    "description": "YouTube kontrolü"
+  },
+  "adb": {
+    "enabled": false,
+    "version": "1.0.0",
+    "description": "Android ADB kontrolü"
+  },
+  "whatsapp": {
+    "enabled": false,
+    "version": "1.0.0",
+    "description": "WhatsApp otomasyonu"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "profile": {
+    "name": "Hüseyin",
+    "lastIntent": "OPEN_APP",
+    "lastAgent": "phone"
+  },
+  "history": [
+    {
+      "time": 1784411686562,
+      "input": "youtube aç",
+      "result": "başarılı"
+    },
+    {
+      "time": 1784412512589,
+      "input": "youtube aç",
+      "result": "Başarılı"
+    }
+  ],
+  "facts": [
+    "Jarvis geliştiriliyor"
+  ]
+}

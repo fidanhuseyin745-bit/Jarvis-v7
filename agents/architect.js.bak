@@ -1,0 +1,26 @@
+'use strict';
+
+class Architect {
+
+  plan(prompt) {
+
+    const text = prompt.toLowerCase();
+
+    const modules = [];
+
+    if (text.includes("api")) modules.push("express");
+    if (text.includes("blog")) modules.push("sqlite");
+    if (text.includes("jwt")) modules.push("jwt");
+    if (text.includes("login")) modules.push("login");
+    if (text.includes("admin")) modules.push("jwt");
+    if (text.includes("swagger")) modules.push("swagger");
+    if (text.includes("docker")) modules.push("docker");
+    if (text.includes("oauth")) modules.push("oauth");
+
+    return [...new Set(modules)];
+
+  }
+
+}
+
+module.exports = Architect;

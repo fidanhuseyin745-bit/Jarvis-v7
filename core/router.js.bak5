@@ -1,0 +1,348 @@
+'use strict';
+
+const simpleGit = require('simple-git');
+const os = require('node:os');
+
+const registry = require('../commands/registry');
+const Patch=require('../commands/patch');
+const Planner = require('../planner/planner');
+
+const TaskManager = require('../agents/taskManager');
+const Executor = require('../agents/executor');
+const Architect = require('../agents/architect');
+const Memory = require('../agents/memory');
+const PhoneAgent = require('../agents/phoneAgent');
+class Router {
+
+  constructor({ projects, builder, runner, ai }) {
+    this.projects = projects;
+    this.builder = builder;
+    this.runner = runner;
+    this.ai = ai || null;
+
+    this.planner = new Planner(builder);
+    this.planner.builder = builder;
+
+    this.memory = new Memory();
+    this.architect = new Architect();
+    this.taskManager = new TaskManager();
+    this.executor = new Executor(builder, this.taskManager, ai, projects);
+    this.phone = new PhoneAgent();
+  }
+
+  async handle(input) {
+    const action = registry.match(input);
+
+    if (!action) {
+      console.log('❓ Komutu anlayamadım. "yardım" yazarak komut listesini görebilirsin.');
+      return;
+    }
+
+    switch (action) {
+
+      case 'help':
+        return this.showHelp();
+
+      case 'status':
+        return this.showStatus();
+
+      case 'git':
+        return this.gitStatus();
+
+      case 'list_projects':
+        return this.listProjects();
+
+      case 'select_project':
+        return this.selectProject(input);
+
+      case 'create_express':
+        return this.builder.build('express oluştur');
+
+      case 'create_react':
+        return this.builder.build('react oluştur');
+
+      case 'create_vue':
+        return this.builder.build('vue oluştur');
+      case 'create_nextjs':
+        return this.builder.build('next.js oluştur');
+
+      case 'create_flask':
+        return this.builder.build('flask oluştur');
+
+      case 'create_fastapi':
+        return this.builder.build('fastapi oluştur');
+
+      case 'run':
+        return this.runner.run();
+
+      case 'phone_battery':
+        return this.phone.batteryStatus();
+
+      case 'phone_clipboard_get':
+        return this.phone.clipboardGet();
+
+      case 'auto_build':
+        return this.autoBuild(input);
+
+      case 'planner':
+        return this.planner.create(input);
+
+      case 'apply_plan':
+        return this.planner.apply();
+
+      case 'add_login':
+        return this.withProject(() => this.builder.addLogin());
+
+      case 'add_jwt':
+        return this.withProject(() => this.builder.addJWT());
+
+      case 'add_sqlite':
+        return this.withProject(() => this.builder.addSQLite());
+
+      case 'add_postgres':
+        return this.withProject(() => this.builder.addPostgres());
+
+      case 'add_mongo':
+        return this.withProject(() => this.builder.addMongo());
+
+      case 'add_tailwind':
+        return this.withProject(() => this.builder.addTailwind());
+
+      case 'add_cors':
+        return this.withProject(() => this.builder.addCors());
+
+      case 'add_helmet':
+        return this.withProject(() => this.builder.addHelmet());
+      case 'add_ratelimit':
+        return this.withProject(() => this.builder.addRateLimit());
+
+      case 'add_oauth':
+        return this.withProject(() => this.builder.addOAuth());
+
+      case 'add_docker':
+        return this.withProject(() => this.builder.addDocker());
+
+      case 'add_docker_compose':
+        return this.withProject(() => this.builder.addDockerCompose());
+
+      case 'add_github_actions':
+        return this.withProject(() => this.builder.addGithubActions());
+
+      case 'add_swagger':
+        return this.withProject(() => this.builder.addSwagger());
+
+      case 'add_test':
+        return this.withProject(() => this.builder.addTest());
+
+      case 'patch':
+        return this.patch.run(input);
+      case 'generate_readme':
+        return this.withAI(() => this.ai.generateReadme(this.projects.getCurrent()));
+
+      case 'analyze':
+        return this.withAI(() => this.ai.analyze(this.projects.getCurrent()));
+
+      case 'fix':
+        return this.withAI(() => this.ai.fix(this.projects.getCurrent()));
+
+      case 'edit':
+        return this.withAI(() => this.ai.applyEdit(this.projects.getCurrent(), input));
+
+      default:
+        console.log('❓ Komutu anlayamadım. "yardım" yazarak komut listesini görebilirsin.');
+
+    }
+
+  }
+
+  async autoBuild(input) {
+
+    console.log('🧠 Plan hazırlanıyor...');
+
+    const { projectType, modules } = await this.architect.planWithAI(input, this.ai);
+
+    if (!this.projects.hasProject()) {
+
+      const typeToUse = projectType || 'express';
+
+      console.log(`📦 Proje bulunamadı, otomatik oluşturuluyor: ${typeToUse}`);
+
+      this.builder.build(`${typeToUse} oluştur`);
+
+    }
+
+    if (modules.length === 0) {
+      console.log("⚠️ Ek modül bulunamadı, sadece proje ve temel adımlarla devam ediliyor.");
+    }
+
+    const fullModules = [...modules, 'test', 'git_commit'];
+
+    this.taskManager.create(fullModules);
+    this.memory.add({ input, modules: fullModules });
+
+    await this.executor.run();
+
+  }
+
+  withProject(fn) {
+
+    if (!this.projects.hasProject()) {
+      console.log('⚠️ Önce bir proje oluşturmalısın (örn: "express oluştur").');
+      return;
+    }
+
+    return fn();
+
+  }
+
+  withAI(fn) {
+
+    if (!this.ai) {
+      console.log('🤖 AI motoru henüz bağlı değil.');
+      return;
+    }
+
+    return this.withProject(fn);
+
+  }
+
+  listProjects() {
+
+    const list = this.projects.listProjects();
+
+    if (list.length === 0) {
+      console.log('📂 Henüz hiç proje yok. Önce bir proje oluştur (örn: "express oluştur").');
+      return;
+    }
+
+    console.log('📂 Projelerin:');
+
+    list.forEach(p => {
+      const marker = p.active ? '👉' : '  ';
+      console.log(`${marker} ${p.index}. ${p.name}  [${p.type}]`);
+    });
+
+    console.log('\nBir projeye geçmek için: "proje seç <numara>" yazabilirsin.');
+
+  }
+
+  selectProject(input) {
+
+    const match = input.match(/(\d+)/);
+
+    if (!match) {
+      console.log('⚠️ Hangi projeye geçmek istediğini numara ile belirtmelisin. Örn: "proje seç 2"');
+      return;
+    }
+
+    const index = parseInt(match[1], 10);
+
+    try {
+      const project = this.projects.selectByIndex(index);
+      console.log(`✅ Aktif proje değiştirildi: ${project.name} [${project.type}]`);
+    } catch (e) {
+      console.log('❌', e.message);
+    }
+
+  }
+
+  showHelp() {
+
+    console.log(`
+📖 Jarvis v6 - Komut Listesi
+
+Proje oluşturma:
+  express oluştur        → Express.js projesi oluşturur
+  react oluştur           → React (Vite) projesi oluşturur
+  vue oluştur             → Vue (Vite) projesi oluşturur
+  next.js oluştur         → Next.js projesi oluşturur (⚠️ bu cihazda çalışmaz)
+  flask oluştur           → Flask projesi oluşturur
+  fastapi oluştur         → FastAPI projesi oluşturur
+
+Proje yönetimi:
+  projelerimi göster      → Tüm projelerini listeler
+  proje seç <numara>      → Belirtilen projeyi aktif yapar
+  çalıştır                → Aktif projeyi başlatır
+
+Veritabanı:
+  sqlite ekle             → SQLite veritabanı ekler
+  postgresql ekle         → PostgreSQL bağlantı kodu ekler
+  mongodb ekle            → MongoDB bağlantı kodu ekler
+
+Güvenlik:
+  login sistemi ekle      → Login/auth sistemi ekler
+  jwt ekle                → JWT doğrulama ekler
+  oauth ekle              → Google OAuth iskeleti ekler
+  helmet ekle             → Güvenlik HTTP header'ları ekler
+  rate limit ekle         → İstek sınırlama ekler
+
+DevOps:
+  docker ekle             → Dockerfile ekler
+  docker compose ekle     → docker-compose.yml ekler
+  github actions ekle     → CI/CD workflow ekler
+  swagger ekle            → API dokümantasyonu ekler
+  test oluştur            → Test dosyaları oluşturur
+
+AI destekli:
+  projeyi analiz et       → Aktif projeyi analiz eder
+  hata düzelt             → Hataları/güvenlik açıklarını tespit eder
+  readme oluştur          → README.md'yi otomatik yazar (dosyayı günceller)
+  ... optimize et / düzenle → Serbest metinle öneri üretir
+
+Otomasyon:
+  otomatik oluştur <istek> → Proje oluşturur, modülleri ekler, test yazar, commit atar
+
+Genel:
+  durum                   → Sistem ve proje durumunu gösterir
+  git                     → Git durumunu gösterir / repo başlatır
+  yardım                  → Bu listeyi gösterir
+  çık                     → Jarvis'ten çıkar
+`);
+
+  }
+
+  showStatus() {
+
+    const dir = this.projects.getCurrent();
+
+    console.log('📊 Durum:');
+    console.log('  Node sürümü:', process.version);
+    console.log('  Platform:', os.platform());
+    console.log('  Aktif proje:', dir ? dir : '(yok)');
+    console.log('  AI motoru:', this.ai ? 'bağlı ✅' : 'bağlı değil ⚠️');
+
+  }
+
+  async gitStatus() {
+
+    return this.withProject(async () => {
+
+      const dir = this.projects.getCurrent();
+      const git = simpleGit(dir);
+
+      const isRepo = await git.checkIsRepo();
+
+      if (!isRepo) {
+        console.log('🔧 Bu projede git deposu yok, başlatılıyor...');
+        await git.init();
+        console.log('✅ Git deposu oluşturuldu.');
+        return;
+      }
+
+      const status = await git.status();
+
+      console.log('📂 Git durumu:');
+      console.log('  Dal:', status.current);
+      console.log('  Değişen dosyalar:', status.files.length);
+
+      status.files.forEach(f => {
+        console.log('   -', f.path, `(${f.working_dir})`);
+      });
+
+    });
+
+  }
+
+}
+
+module.exports = Router;

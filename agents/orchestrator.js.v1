@@ -1,0 +1,38 @@
+"use strict";
+
+class Orchestrator{
+
+  constructor(core){
+    this.core=core;
+  }
+
+  async build(prompt){
+
+    console.log("🧠 Architect...");
+
+    await this.core.architect.planWithAI(
+      prompt,
+      this.core.ai
+    );
+
+    console.log("💻 Coder...");
+
+    await this.core.codeGenerator.generate(prompt);
+
+    console.log("🔍 Reviewer...");
+
+    const review=
+      await this.core.reviewer.review(
+        this.core.ai,
+        ["project"]
+      );
+
+    console.log(review);
+
+    return true;
+
+  }
+
+}
+
+module.exports=Orchestrator;

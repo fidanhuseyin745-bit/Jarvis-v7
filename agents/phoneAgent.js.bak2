@@ -1,0 +1,146 @@
+'use strict';
+
+const { execSync } = require('child_process');
+
+class PhoneAgent {
+
+  notify(title, content) {
+
+    try {
+      execSync(`termux-notification --title "${title}" --content "${content}"`);
+      console.log('🔔 Bildirim gönderildi.');
+    } catch (e) {
+      console.log('❌ Bildirim gönderilemedi:', e.message);
+    }
+
+  }
+
+  openUrl(url) {
+
+    try {
+      execSync(`termux-open-url "${url}"`);
+      console.log('🌐 Link açıldı:', url);
+    } catch (e) {
+      console.log('❌ Link açılamadı:', e.message);
+    }
+
+  }
+
+  clipboardSet(text) {
+
+    try {
+      execSync(`termux-clipboard-set "${text}"`);
+      console.log('📋 Panoya kopyalandı.');
+    } catch (e) {
+      console.log('❌ Panoya yazılamadı:', e.message);
+    }
+
+  }
+
+  clipboardGet() {
+
+    try {
+      const result = execSync(`termux-clipboard-get`).toString().trim();
+      console.log('📋 Pano içeriği:', result);
+      return result;
+    } catch (e) {
+      console.log('❌ Pano okunamadı:', e.message);
+      return null;
+    }
+
+  }
+
+  batteryStatus() {
+
+    try {
+      const result = execSync(`termux-battery-status`).toString();
+      const data = JSON.parse(result);
+      console.log(`🔋 Batarya: %${data.percentage} (${data.status === 'CHARGING' ? 'şarj oluyor' : 'şarjda değil'})`);
+      return data;
+    } catch (e) {
+      console.log('❌ Batarya durumu alınamadı:', e.message);
+      return null;
+    }
+
+  }
+
+  call(number) {
+
+    try {
+      execSync(`termux-telephony-call "${number}"`);
+      console.log('📞 Arama başlatıldı:', number);
+    } catch (e) {
+      console.log('❌ Arama başlatılamadı:', e.message);
+    }
+
+  }
+
+  openApp(packageName) {
+
+    try {
+      execSync(`am start -n ${packageName}`);
+      console.log('📱 Uygulama açıldı:', packageName);
+    } catch (e) {
+      console.log('❌ Uygulama açılamadı:', e.message);
+    }
+
+  }
+
+  async assist(input, aiManager) {
+
+    if (!aiManager) {
+      console.log('🤖 AI motoru bağlı değil, bu isteği işleyemiyorum.');
+      return;
+    }
+
+    const messages = [
+      {
+        role: 'system',
+        content: 'Sen bir telefon asistanısın. Kullanicinin istegini analiz et ve SADECE JSON formatinda cevap ver, baska aciklama ekleme. Format: {"action": "notify|open_url|call|clipboard_set|chat", "params": {}, "reply": ""}. action=notify ise params icinde title ve content olsun. action=open_url ise params icinde url olsun. action=call ise params icinde number olsun. action=clipboard_set ise params icinde text olsun. Eger istek bunlardan hicbirine uymuyorsa (genel soru, sohbet, bilgi istegi) action="chat" yap ve reply alanina Turkce, dogal bir cevap yaz.'
+      },
+      {
+        role: 'user',
+        content: input
+      }
+    ];
+
+    try {
+
+      const raw = await aiManager.chat(messages, { max_tokens: 250, temperature: 0.4 });
+      const cleaned = raw.replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+
+      switch (parsed.action) {
+
+        case 'notify':
+          this.notify((parsed.params && parsed.params.title) || 'Jarvis', (parsed.params && parsed.params.content) || '');
+          break;
+
+        case 'open_url':
+          this.openUrl(parsed.params && parsed.params.url);
+          break;
+
+        case 'call':
+          this.call(parsed.params && parsed.params.number);
+          break;
+
+        case 'clipboard_set':
+          this.clipboardSet(parsed.params && parsed.params.text);
+          break;
+
+        case 'chat':
+        default:
+          console.log('💬', parsed.reply || raw);
+          break;
+
+      }
+
+    } catch (e) {
+      console.log('⚠️ İsteği işlerken sorun oluştu:', e.message);
+    }
+
+  }
+
+}
+
+module.exports = PhoneAgent;

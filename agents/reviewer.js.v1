@@ -1,0 +1,30 @@
+'use strict';
+
+class Reviewer {
+
+  review(files=[]){
+
+    const report=[];
+
+    for(const f of files){
+
+      if(f.includes("console.log")){
+        report.push({
+          type:"warning",
+          file:f,
+          message:"Gereksiz console.log olabilir."
+        });
+      }
+
+    }
+
+    return {
+      success:true,
+      report
+    };
+
+  }
+
+}
+
+module.exports=Reviewer;

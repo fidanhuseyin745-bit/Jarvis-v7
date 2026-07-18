@@ -1,0 +1,14 @@
+{
+  "whatsapp":["whatsapp","watsap","whatsap","wp","mesaj"],
+  "youtube":["youtube","youtub","yt"],
+  "spotify":["spotify","spotfy","spotifay"],
+  "discord":["discord","discrod","dc"],
+  "telegram":["telegram","telegran","tg"],
+  "instagram":["instagram","instgram","insta"],
+  "chrome":["chrome","chrom"],
+  "camera":["kamera","camera"],
+  "gallery":["galeri","gallery"],
+  "settings":["ayarlar","ayar","settings"],
+  "playstore":["play store","playstore"],
+  "chatgpt":["chatgpt","gpt"]
+}

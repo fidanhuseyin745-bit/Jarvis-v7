@@ -1,0 +1,501 @@
+'use strict';
+
+const { spawn } = require('child_process');
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
+
+function execSyncCheck(cmd) {
+  execSync(cmd, { stdio: 'pipe' });
+}
+
+const LLAMA_SERVER_BIN = '/data/data/com.termux/files/home/llama.cpp/build/bin/llama-server';
+const MODEL_PATH = '/data/data/com.termux/files/home/models/qwen2.5-1.5b-instruct-q4_k_m.gguf';
+const HOST = '127.0.0.1';
+const PORT = 9000;
+const BASE_URL = `http://${HOST}:${PORT}`;
+
+const CHAT_TIMEOUT_MS = 300000;
+const DEFAULT_MAX_TOKENS = 150;
+
+class AIManager {
+
+  constructor() {
+    this.serverProcess = null;
+    this.starting = null;
+  }
+
+  // ---------- Sunucu yönetimi ----------
+
+  async isServerUp() {
+
+    try {
+      await axios.get(`${BASE_URL}/health`, { timeout: 1500 });
+      return true;
+    } catch (e) {
+      return false;
+    }
+
+  }
+
+  async ensureServer() {
+
+    if (await this.isServerUp()) {
+      return true;
+    }
+
+    if (this.starting) {
+      return this.starting;
+    }
+
+    this.starting = this._startServer();
+
+    const result = await this.starting;
+    this.starting = null;
+
+    return result;
+
+  }
+
+  _startServer() {
+
+    return new Promise((resolve) => {
+
+      if (!fs.existsSync(LLAMA_SERVER_BIN)) {
+        console.log('❌ llama-server bulunamadı:', LLAMA_SERVER_BIN);
+        return resolve(false);
+      }
+
+      if (!fs.existsSync(MODEL_PATH)) {
+        console.log('❌ Model dosyası bulunamadı:', MODEL_PATH);
+        return resolve(false);
+      }
+
+      console.log('🧠 AI motoru başlatılıyor (llama-server)...');
+
+      this.serverProcess = spawn(
+        LLAMA_SERVER_BIN,
+        [
+          '-m', MODEL_PATH,
+          '--host', HOST,
+          '--port', String(PORT),
+          '-c', '4096',
+          '-t', String(require('os').cpus().length)
+        ],
+        {
+          cwd: path.dirname(LLAMA_SERVER_BIN),
+          detached: false,
+          stdio: 'ignore'
+        }
+      );
+
+      this.serverProcess.on('error', (e) => {
+        console.log('❌ AI motoru başlatılamadı:', e.message);
+        resolve(false);
+      });
+
+      this.serverProcess.on('exit', () => {
+        this.serverProcess = null;
+      });
+
+      this._waitUntilReady(30000).then(resolve);
+
+    });
+
+  }
+
+  async _waitUntilReady(timeoutMs) {
+
+    const start = Date.now();
+
+    while (Date.now() - start < timeoutMs) {
+
+      if (await this.isServerUp()) {
+        console.log('✅ AI motoru hazır.');
+        return true;
+      }
+
+      await new Promise(r => setTimeout(r, 1000));
+
+    }
+
+    console.log('❌ AI motoru zamanında hazır olmadı.');
+    return false;
+
+  }
+
+  stopServer() {
+
+    if (this.serverProcess) {
+      try {
+        this.serverProcess.kill('SIGTERM');
+      } catch (e) {
+        // yoksay
+      }
+      this.serverProcess = null;
+    }
+
+  }
+
+  // ---------- Model ile konuşma ----------
+
+  async chat(messages, options = {}) {
+
+    const ready = await this.ensureServer();
+
+    if (!ready) {
+      throw new Error('AI motoru şu an kullanılamıyor.');
+    }
+
+    let response;
+
+    try {
+
+      response = await axios.post(
+        `${BASE_URL}/v1/chat/completions`,
+        {
+          model: 'qwen2.5-1.5b-instruct',
+          messages,
+          temperature: options.temperature ?? 0.3,
+          max_tokens: options.max_tokens ?? DEFAULT_MAX_TOKENS
+        },
+        { timeout: CHAT_TIMEOUT_MS }
+      );
+
+    } catch (e) {
+
+      if (e.response && e.response.data) {
+        console.log('🧾 AI sunucusu hata detayı:', JSON.stringify(e.response.data));
+      }
+
+      throw e;
+
+    }
+
+    const choice = response.data && response.data.choices && response.data.choices[0];
+
+    if (!choice || !choice.message) {
+      throw new Error('AI motorundan geçerli bir yanıt alınamadı.');
+    }
+
+    return choice.message.content;
+
+  }
+
+  // ---------- Proje odaklı yardımcı fonksiyonlar ----------
+
+  readProjectSnapshot(dir, maxFiles = 6, maxCharsPerFile = 800) {
+
+    const ignoreDirs = new Set(['node_modules', '.git', 'dist', 'build', '__pycache__', 'venv', '.jarvis-backups']);
+
+    const files = [];
+
+    const walk = (current) => {
+
+      if (files.length >= maxFiles) return;
+
+      const entries = fs.readdirSync(current, { withFileTypes: true });
+
+      for (const entry of entries) {
+
+        if (files.length >= maxFiles) return;
+
+        if (entry.isDirectory()) {
+          if (!ignoreDirs.has(entry.name)) {
+            walk(path.join(current, entry.name));
+          }
+          continue;
+        }
+
+        const fullPath = path.join(current, entry.name);
+        const rel = path.relative(dir, fullPath);
+
+        const codeExtensions = ['.js', '.jsx', '.py', '.json', '.html', '.css'];
+        if (!codeExtensions.includes(path.extname(entry.name))) continue;
+
+        try {
+
+          let content = fs.readFileSync(fullPath, 'utf8');
+
+          if (content.length > maxCharsPerFile) {
+            content = content.slice(0, maxCharsPerFile) + '\n... (kırpıldı)';
+          }
+
+          files.push({ path: rel, content });
+
+        } catch (e) {
+          // okunamayan dosyayı atla
+        }
+
+      }
+
+    };
+
+    walk(dir);
+
+    return files;
+
+  }
+
+  buildProjectContext(dir) {
+
+    const files = this.readProjectSnapshot(dir);
+
+    return files
+      .map(f => `--- ${f.path} ---\n${f.content}`)
+      .join('\n\n');
+
+  }
+
+  async analyze(dir) {
+
+    if (!dir) throw new Error('Aktif proje yok.');
+
+    console.log('🔍 Proje analiz ediliyor, bu biraz sürebilir...');
+
+    const context = this.buildProjectContext(dir);
+
+    const messages = [
+      {
+        role: 'system',
+        content: 'Sen deneyimli bir yazılım mimarısın. Verilen proje dosyalarını analiz et. Kısa, net, madde madde bir değerlendirme yap: proje ne yapıyor, olası hatalar/riskler neler, iyileştirme önerileri neler. Türkçe cevap ver.'
+      },
+      {
+        role: 'user',
+        content: `Aşağıda bir projenin dosyaları var. Analiz et:\n\n${context}`
+      }
+    ];
+
+    const result = await this.chat(messages, { max_tokens: DEFAULT_MAX_TOKENS });
+
+    console.log('\n📋 Analiz Sonucu:\n');
+    console.log(result);
+
+    return result;
+
+  }
+
+  async fix(dir) {
+
+    if (!dir) throw new Error('Aktif proje yok.');
+
+    console.log('🛠️ Hatalar tespit ediliyor, bu biraz sürebilir...');
+
+    const context = this.buildProjectContext(dir);
+
+    const messages = [
+      {
+        role: 'system',
+        content: 'Sen deneyimli bir yazılım mühendisisin. Verilen proje dosyalarında sözdizimi hatası, mantık hatası, veya eksik/yanlış import gibi sorunları tespit et. Her sorunu hangi dosyada olduğunu belirterek listele ve nasıl düzeltileceğini kısaca açıkla. Türkçe cevap ver. Eğer belirgin bir hata bulamazsan bunu açıkça belirt.'
+      },
+      {
+        role: 'user',
+        content: `Aşağıdaki projede hata ara:\n\n${context}`
+      }
+    ];
+
+    const result = await this.chat(messages, { max_tokens: DEFAULT_MAX_TOKENS });
+
+    console.log('\n🛠️ Bulgular:\n');
+    console.log(result);
+
+    return result;
+
+  }
+
+  async edit(dir, instruction) {
+
+    if (!dir) throw new Error('Aktif proje yok.');
+
+    console.log('✏️ İstek işleniyor, bu biraz sürebilir...');
+
+    const context = this.buildProjectContext(dir);
+
+    const messages = [
+      {
+        role: 'system',
+        content: 'Sen deneyimli bir yazılım mühendisisin. Kullanıcının isteğine göre projede hangi dosyanın nasıl değiştirilmesi gerektiğini söyle. Sadece öneri ve kod parçacığı ver, dosyaları otomatik değiştirme; kullanıcı manuel uygulayacak. Türkçe cevap ver.'
+      },
+      {
+        role: 'user',
+        content: `Proje dosyaları:\n\n${context}\n\nKullanıcının isteği: "${instruction}"\n\nBu isteği karşılamak için hangi dosyada ne değişmeli, göster.`
+      }
+    ];
+
+    const result = await this.chat(messages, { max_tokens: DEFAULT_MAX_TOKENS });
+
+    console.log('\n✏️ Öneri:\n');
+    console.log(result);
+
+    return result;
+
+  }
+
+  // ---------- Otomatik dosya yazma (yedekli) ----------
+
+  backupFile(filePath) {
+
+    if (!fs.existsSync(filePath)) return null;
+
+    const dir = path.dirname(filePath);
+    const backupsDir = path.join(dir, '.jarvis-backups');
+
+    fs.mkdirSync(backupsDir, { recursive: true });
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupPath = path.join(backupsDir, `${path.basename(filePath)}.${stamp}.bak`);
+
+    fs.copyFileSync(filePath, backupPath);
+
+    return backupPath;
+
+  }
+
+  async generateReadme(dir) {
+
+    if (!dir) throw new Error('Aktif proje yok.');
+
+    console.log('📝 README oluşturuluyor, bu biraz sürebilir...');
+
+    const context = this.buildProjectContext(dir);
+
+    const messages = [
+      {
+        role: 'system',
+        content: 'Sen deneyimli bir yazılım mühendisisin. Verilen proje dosyalarına bakarak bu proje için profesyonel bir README.md dosyası yaz. SADECE markdown içeriğini ver, başka açıklama, önsöz veya kod bloğu işareti (```) ekleme. Türkçe yaz.'
+      },
+      {
+        role: 'user',
+        content: `Proje dosyaları:\n\n${context}\n\nBu proje için bir README.md oluştur.`
+      }
+    ];
+
+    const result = await this.chat(messages, { max_tokens: DEFAULT_MAX_TOKENS });
+
+    const readmePath = path.join(dir, 'README.md');
+
+    const backupPath = this.backupFile(readmePath);
+
+    fs.writeFileSync(readmePath, result.trim() + '\n');
+
+    console.log('✅ README.md güncellendi.');
+
+    if (backupPath) {
+      console.log('🗄️ Eski sürüm yedeklendi:', backupPath);
+    }
+
+    return result;
+
+  }
+
+}
+
+  // ---------- Sözdizimi doğrulama ----------
+
+  validateSyntax(filePath) {
+
+    const ext = path.extname(filePath);
+
+    try {
+
+      if (ext === '.js' || ext === '.jsx') {
+        execSyncCheck(`node --check "${filePath}"`);
+        return { valid: true };
+      }
+
+      if (ext === '.py') {
+        execSyncCheck(`python3 -m py_compile "${filePath}"`);
+        return { valid: true };
+      }
+
+      // Bilinmeyen/kontrol edilemeyen dosya türleri için doğrulama atlanır.
+      return { valid: true };
+
+    } catch (e) {
+      return { valid: false, error: e.message };
+    }
+
+  }
+
+  // ---------- AI destekli otomatik kod düzenleme ----------
+
+  async applyEdit(dir, instruction) {
+
+    if (!dir) throw new Error('Aktif proje yok.');
+
+    console.log('✏️ Değişiklik hazırlanıyor, bu biraz sürebilir...');
+
+    const context = this.buildProjectContext(dir);
+
+    const messages = [
+      {
+        role: 'system',
+        content: 'Sen deneyimli bir yazılım mühendisisin. Kullanıcının isteğine göre, verilen proje dosyalarından SADECE BİR TANESİNİ değiştir. Yanıtını TAM OLARAK şu formatta ver, başka hiçbir açıklama veya metin ekleme:\nDOSYA: <değiştirilecek dosyanın göreli yolu>\n---\n<dosyanın TAM yeni içeriği>\n---'
+      },
+      {
+        role: 'user',
+        content: `Proje dosyaları:\n\n${context}\n\nİstek: "${instruction}"\n\nBu isteği karşılamak için hangi dosyayı nasıl değiştireceğini yukarıdaki formatta ver.`
+      }
+    ];
+
+    const result = await this.chat(messages, { max_tokens: 600 });
+
+    const fileMatch = result.match(/DOSYA:\s*(.+)/);
+    const bodyMatch = result.match(/---\s*\n([\s\S]*?)\n---/);
+
+    if (!fileMatch || !bodyMatch) {
+      console.log('⚠️ AI beklenen formatta yanıt vermedi, otomatik değişiklik yapılamadı.');
+      console.log('\nHam yanıt:\n' + result);
+      return null;
+    }
+
+    const relPath = fileMatch[1].trim();
+    const newContent = bodyMatch[1];
+
+    const targetPath = path.join(dir, relPath);
+
+    if (!targetPath.startsWith(dir)) {
+      console.log('❌ Güvenlik: proje dizini dışına yazma engellendi:', relPath);
+      return null;
+    }
+
+    if (!fs.existsSync(targetPath)) {
+      console.log(`⚠️ Dosya bulunamadı: ${relPath}. Otomatik değişiklik yapılamadı.`);
+      console.log('\nAI önerisi:\n' + result);
+      return null;
+    }
+
+    // Geçici dosyaya yazıp önce onu doğruluyoruz, orijinali bozmadan.
+    const tmpPath = targetPath + '.jarvis-tmp';
+    fs.writeFileSync(tmpPath, newContent);
+
+    const validation = this.validateSyntax(tmpPath);
+
+    if (!validation.valid) {
+      fs.unlinkSync(tmpPath);
+      console.log('❌ AI\'ın önerdiği kod sözdizimi hatası içeriyor, dosya DEĞİŞTİRİLMEDİ.');
+      console.log('Hata detayı:', validation.error);
+      console.log('\nHam AI yanıtı:\n' + result);
+      return null;
+    }
+
+    fs.unlinkSync(tmpPath);
+
+    const backupPath = this.backupFile(targetPath);
+
+    fs.writeFileSync(targetPath, newContent);
+
+    console.log(`✅ ${relPath} güncellendi (sözdizimi doğrulandı).`);
+
+    if (backupPath) {
+      console.log('🗄️ Eski sürüm yedeklendi:', backupPath);
+    }
+
+    return { file: relPath, backupPath };
+
+  }
+
+}
+
+module.exports = AIManager;
