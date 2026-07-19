@@ -1,5 +1,4 @@
 "use strict";
-const fuzzy=require("./fuzzyMatcher");
 
 const aliases={
 youtube:["youtube","yt","yutub","yotube","you tube"],
@@ -38,7 +37,6 @@ t=t.replaceAll(a,real);
 
 }
 
-t=t.split(" ").map(w=>fuzzy.match(w)).join(" ");
 return t;
 
 }
