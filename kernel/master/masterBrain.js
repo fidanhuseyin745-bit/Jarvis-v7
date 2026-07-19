@@ -9,21 +9,19 @@ class MasterBrain{
 
 async run(cmd){
 
-const output=await commander.run(cmd);
+const out=await commander.run(cmd);
 
-const review=reflection.review(output.result);
+const review=reflection.review(out.result);
 
 adaptive.record(
-output.result.agent||"system",
+out.result.agent||"system",
 review.ok
 );
 
 return{
-
-output,
+commander:out,
 review,
 goals:goals.active()
-
 };
 
 }
