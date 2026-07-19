@@ -6,7 +6,6 @@ const planner=require("../planner/planner");
 const reasoning=require("../reasoning/reasoningEngine");
 const executive=require("../executive/executiveV2");
 const multi=require("../multiagent/multiAgentEngine");
-const appResolver=require("../skills/apps/appResolver");
 
 class AICommander{
 
@@ -22,12 +21,6 @@ const plan=planner.plan(text);
 const think=reasoning.think(plan,{});
 
 const result=await executive.process(text);
-const app=appResolver.resolve(text);
-if(app){
-result.intent=app.intent;
-result.app=app.app;
-result.package=app.package;
-}
 
 return{
 

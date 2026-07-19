@@ -1,34 +1,34 @@
 "use strict";
 
 const learning=require("../learning/learningEngine");
-const adaptive=require("../adaptive/adaptiveEngine");
-const reflection=require("../reflection/reflectionEngine");
-const repair=require("../selfrepair/selfRepair");
 
 class AutonomousCore{
 
-check(){
+status(){
 
 const report=learning.report();
 
-if(report.accuracy<70){
-
-return repair.repair("Başarı oranı düşük");
-
-}
-
 return{
 
-fixed:true,
+healthy:report.accuracy>=70,
 
-message:"Sistem sağlıklı.",
+accuracy:report.accuracy,
 
-accuracy:report.accuracy
+success:report.success,
+
+fail:report.fail
 
 };
 
 }
 
 }
+
+
+AutonomousCore.prototype.decide=function(){
+const s=this.status();
+if(s.healthy)return "continue";
+return "repair";
+};
 
 module.exports=new AutonomousCore();

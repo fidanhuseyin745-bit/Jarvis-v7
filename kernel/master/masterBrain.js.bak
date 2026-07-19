@@ -4,7 +4,6 @@ const commander=require("../commander/aiCommander");
 const reflection=require("../reflection/reflectionEngine");
 const adaptive=require("../adaptive/adaptiveEngine");
 const goals=require("../goals/goalManager");
-const auto=require("../autonomous/autonomousCore");
 
 class MasterBrain{
 
