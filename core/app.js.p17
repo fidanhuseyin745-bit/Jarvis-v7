@@ -9,7 +9,6 @@ const Runner = require('../commands/run');
 const AIManager = require('./aiManager');
 const Brain = require("../kernel/brain/brainPipeline");
 const Dashboard = require('../dashboard/dashboard');
-const MasterBrain=require("../kernel/master/masterBrain");
 
 class App {
 
@@ -20,7 +19,6 @@ class App {
     this.ai = new AIManager();
     this.brain = Brain;
     this.dashboard = new Dashboard();
-this.master=MasterBrain;
   }
 
   async start() {

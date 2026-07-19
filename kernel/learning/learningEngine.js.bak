@@ -29,10 +29,6 @@ return Math.round((this.stats.success/total)*100);
 
 }
 
-remember(success){
-this.learn(success);
-}
-
 report(){
 
 return{
